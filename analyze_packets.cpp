@@ -40,7 +40,12 @@
 #include <vector>
 #endif
 
-// Data structure for results_array
+#ifndef INCL_CMATH
+#define INCL_CMATH
+#include <cmath>
+#endif
+
+// DATA STRUCTURES 
 struct result_elem {
 	long packet_id;
 	bool successful;
@@ -57,6 +62,11 @@ struct result_elem {
 	double pathloss_measured_db;
 	double pathloss_modeled_db;
 };
+
+// FUNCTION DECLARATIONS
+double calc_distance (double, double, double, double);
+
+// FUNCTION DEFINITIONS
 
 // Function to take in row of text, and return a vector containing
 // the fields of the CSV row
@@ -159,12 +169,42 @@ std::vector<result_elem> packet_compare(std::vector<std::vector<std::string>> &t
 		curr_res.pathloss_measured_db = 0;
 		curr_res.pathloss_modeled_db = 0;
 
+		for (auto &rx_elem : rx_table) {
+			double rx_id = std::stol(rx_elem.at(0));
+			if (rx_id == curr_res.packet_id) { // packet was successfully received
+				curr_res.successful = 1;
+				curr_res.rx_lat = std::stod(rx_elem.at(1));
+				curr_res.rx_long = std::stod(rx_elem.at(2));
+				curr_res.rssi_dbm = std::stod(rx_elem.at(4));
+				curr_res.snr_db = std::stod(rx_elem.at(5));
+				curr_res.distance_km = calc_distance(curr_res.tx_lat, curr_res.tx_long, curr_res.rx_lat, curr_res.rx_long); 
+			}
+		}
 		results_table.push_back(curr_res);
 	}
 		
 	return results_table;
 }
 
+double calc_distance(double lat1, double lon1, double lat2, double lon2) {
+	// use haversine formula to calculate distance between points
+	// parameters lat1, lon1, lat2, lon2 are all in degrees
+	// 
+	// The calculated distance returned is in units of meters
+	long double r = 6371e3;
+	long double lat1_rad = lat1 * (3.141592653 / 180.0);
+	long double lat2_rad = lat2 * (3.141592653 / 180.0);
+	long double delta_lat = (lat2 - lat1) * (3.141592653/180.0);
+	long double delta_lon = (lon2 - lon1) * (3.141592653/180.0);
+
+	long double a = pow(sin(delta_lat/2.0), 2.0) + (cos(lat1_rad)*cos(lat2_rad)*pow(sin(delta_lon/2.0), 2.0));
+	long double c = 2.0 * atan2( pow(a, 0.5), pow((1.0-a), 1.0/2.0));
+	long double d = r * c;
+	//std::cout << "lat1_rad: " << lat1_rad << ", lat2_rad: " << lat2_rad << ", delta_lat: " << delta_lat << ", delta_lon: " << delta_lon << ", a: " << a << ", c: " << c << ", d: " << d << std::endl;
+	return (double)d;
+}
+
+// MAIN FUNCTION
 int main() {
 	// open up CSV files and read them to tables
 	std::ifstream ifs_tx, ifs_rx;
@@ -177,6 +217,13 @@ int main() {
 	// Compare tx_table and rx_table to generate results_table
 	std::vector<result_elem> results_table = packet_compare(tx_table, rx_table);
 	
+	std::cout << "# Tx Packets: " << tx_table.size() << ", # Rx Packets: " << rx_table.size() << std::endl;
+	std::cout << "# Rows in results_table: " << results_table.size() << std::endl;
+
+	for (auto &elem : results_table) {
+		std::cout << elem.packet_id << " " << elem.successful << " " << elem.tx_lat << " " << elem.tx_long << " " << elem.tx_power << " " << elem.rx_lat << " " << elem.rx_long << " " << elem.distance_km << " " << elem.rssi_dbm << " " << elem.snr_db << " " << elem.pathloss_measured_db << " " << elem.pathloss_modeled_db << std::endl;
+	}
+
 	// Analyze results_table and calculate gamma value
 	//double gamma = calc_gamma(results_table);
 
@@ -201,3 +248,4 @@ int main() {
 
 	return 0;
 }
+
