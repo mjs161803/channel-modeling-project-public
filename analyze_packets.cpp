@@ -56,7 +56,7 @@ struct result_elem {
 	double rx_lat;
 	double rx_long;
 
-	double distance_km;
+	double distance_m;
 	double rssi_dbm;
 	double snr_db;
 	double pathloss_measured_db;
@@ -147,7 +147,7 @@ std::vector<result_elem> packet_compare(std::vector<std::vector<std::string>> &t
 	//    - if match found, populate... 
 	//       - rx_lat
 	//       - rx_long
-	//       - distance_km
+	//       - distance_m
 	//       - rssi
 	//       - snr
 	//       - pathloss_measured_db 
@@ -161,7 +161,7 @@ std::vector<result_elem> packet_compare(std::vector<std::vector<std::string>> &t
 		curr_res.tx_power = std::stod(tx_elem.at(4));
 		
 		curr_res.successful = 0;
-		curr_res.distance_km = 0;
+		curr_res.distance_m = 0;
 		curr_res.rx_lat = 0;
 		curr_res.rx_long = 0;
 		curr_res.rssi_dbm = 0;
@@ -177,7 +177,8 @@ std::vector<result_elem> packet_compare(std::vector<std::vector<std::string>> &t
 				curr_res.rx_long = std::stod(rx_elem.at(2));
 				curr_res.rssi_dbm = std::stod(rx_elem.at(4));
 				curr_res.snr_db = std::stod(rx_elem.at(5));
-				curr_res.distance_km = calc_distance(curr_res.tx_lat, curr_res.tx_long, curr_res.rx_lat, curr_res.rx_long); 
+				curr_res.pathloss_measured_db = curr_res.rssi_dbm - curr_res.tx_power;
+				curr_res.distance_m = calc_distance(curr_res.tx_lat, curr_res.tx_long, curr_res.rx_lat, curr_res.rx_long); 
 			}
 		}
 		results_table.push_back(curr_res);
@@ -204,12 +205,55 @@ double calc_distance(double lat1, double lon1, double lat2, double lon2) {
 	return (double)d;
 }
 
+double calc_gamma(std::vector<result_elem> &results_table) {
+	// This function calculates a value for Gamma using the 
+	// Minimum Mean Squared Error (MMSE).  The MSE is calculated
+	// as a function of gamma "F(g)".  That function is then
+	// differentiated with respect to gamma, set equal to zero
+	// and then solved for gamma.
+	//
+	// The rough algorithm:
+	//    1) pick value for d_o (for use in the Simplified Path Loss Model)
+	//    2) calculate K parameter using FSPL at distance d_o
+	//    3) iterate over results table, summing up terms for 
+	//       the equation F(g)
+	//
+	//       MSE = Sum [over all measurement points] (PL_measured - PL_modeled)^2
+	//
+	//    4) differentiate F(g) by multiplying 'z' term by 2
+	//    5) set F'(g) = 0 and solve for gamma
+	
+	double gamma, x {0.0}, y {0.0}, z{0.0};
+	double wavelength = 299000000.0 / 915000000.0;
+	double d_o = 1.0; 	// 'd-naught' assumed to be 1m for indoor environments
+		 		// or 10m-100m for outdoor environments
+	double k = 20.0 * log10(wavelength / (4.0 * 3.141592653 * d_o));
+
+	for (auto &cur_res : results_table) {
+		if (cur_res.successful == 1) {
+			x += 2 * (cur_res.pathloss_measured_db - k) * (10*log10(cur_res.distance_m / d_o));
+			y += pow((10*log10(cur_res.distance_m / d_o)), 2);
+		}
+	}
+
+	z = 2.0 * y; // differentiate F(g)
+	gamma = -x / z;
+
+	// populate results_table with modeled path loss values using this new gamma value
+	for (auto &cur_res : results_table) {
+		cur_res.pathloss_modeled_db = k - (10 * gamma * log10(cur_res.distance_m / d_o));
+	}
+
+	return gamma;
+}
+
+
 // MAIN FUNCTION
 int main() {
 	// open up CSV files and read them to tables
 	std::ifstream ifs_tx, ifs_rx;
-	ifs_tx.open ("tx_packets - 6 APR 2021.csv", std::ifstream::in);
-	ifs_rx.open ("rx_packets - 6 APR 2021.csv", std::ifstream::in);
+	ifs_tx.open ("tx_packets - 10 APR 2021.csv", std::ifstream::in);
+	ifs_rx.open ("rx_packets - 10 APR 2021.csv", std::ifstream::in);
 
 	std::vector<std::vector<std::string>> tx_table = readCSV(ifs_tx);
 	std::vector<std::vector<std::string>> rx_table = readCSV(ifs_rx);
@@ -217,15 +261,15 @@ int main() {
 	// Compare tx_table and rx_table to generate results_table
 	std::vector<result_elem> results_table = packet_compare(tx_table, rx_table);
 	
-	std::cout << "# Tx Packets: " << tx_table.size() << ", # Rx Packets: " << rx_table.size() << std::endl;
-	std::cout << "# Rows in results_table: " << results_table.size() << std::endl;
+	// Analyze results_table and calculate gamma value
+	double gamma = calc_gamma(results_table);
+	std::cout << "Calculated gamma value: " << gamma << std::endl << std::endl;
 
+	// Print contents of results_table
 	for (auto &elem : results_table) {
-		std::cout << elem.packet_id << " " << elem.successful << " " << elem.tx_lat << " " << elem.tx_long << " " << elem.tx_power << " " << elem.rx_lat << " " << elem.rx_long << " " << elem.distance_km << " " << elem.rssi_dbm << " " << elem.snr_db << " " << elem.pathloss_measured_db << " " << elem.pathloss_modeled_db << std::endl;
+		std::cout << elem.packet_id << " " << elem.successful << " " << elem.tx_lat << " " << elem.tx_long << " " << elem.tx_power << " " << elem.rx_lat << " " << elem.rx_long << " " << elem.distance_m << " " << elem.rssi_dbm << " " << elem.snr_db << " " << elem.pathloss_measured_db << " " << elem.pathloss_modeled_db << std::endl;
 	}
 
-	// Analyze results_table and calculate gamma value
-	//double gamma = calc_gamma(results_table);
 
 	// Calculate shadow fading standard deviation
 	//double sigma_sf = calc_sigma_sf(results_table);
