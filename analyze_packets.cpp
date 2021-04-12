@@ -247,6 +247,22 @@ double calc_gamma(std::vector<result_elem> &results_table) {
 	return gamma;
 }
 
+double calc_sigma_sf(std::vector<result_elem> &results_table) {
+	double sf_sigma {0.0}, error_sum {0.0};
+	int n {0};
+
+	for (auto &curr_res : results_table) {
+		if (curr_res.successful == 1) {
+			error_sum += pow((curr_res.pathloss_measured_db - curr_res.pathloss_modeled_db), 2);	
+			++n;
+		}
+	}
+	
+	sf_sigma = pow( (error_sum / n), 0.5);
+
+	return sf_sigma;
+}
+
 
 // MAIN FUNCTION
 int main() {
@@ -265,15 +281,14 @@ int main() {
 	double gamma = calc_gamma(results_table);
 	std::cout << "Calculated gamma value: " << gamma << std::endl << std::endl;
 
-	// Print contents of results_table
-	for (auto &elem : results_table) {
-		std::cout << elem.packet_id << " " << elem.successful << " " << elem.tx_lat << " " << elem.tx_long << " " << elem.tx_power << " " << elem.rx_lat << " " << elem.rx_long << " " << elem.distance_m << " " << elem.rssi_dbm << " " << elem.snr_db << " " << elem.pathloss_measured_db << " " << elem.pathloss_modeled_db << std::endl;
-	}
-
-
 	// Calculate shadow fading standard deviation
-	//double sigma_sf = calc_sigma_sf(results_table);
+	double sigma_sf = calc_sigma_sf(results_table);
+	std::cout << "Calculated standard deviation of shadow fading: " << sigma_sf << std::endl;
 
+	// Print contents of results_table
+//	for (auto &elem : results_table) {
+//		std::cout << elem.packet_id << " " << elem.successful << " " << elem.tx_lat << " " << elem.tx_long << " " << elem.tx_power << " " << elem.rx_lat << " " << elem.rx_long << " " << elem.distance_m << " " << elem.rssi_dbm << " " << elem.snr_db << " " << elem.pathloss_measured_db << " " << elem.pathloss_modeled_db << std::endl;
+//	}
 	// Generate scatter plot of PL vs distance, along with overlay
 	// of Simplified Path Loss model generated earlier
 	//gen_scatterplot(results_table, gamma);
