@@ -25,6 +25,11 @@
 #include <iostream>
 #endif
 
+#ifndef INCL_ALGORITHM
+#define INCL_ALGORITHM
+#include <algorithm>
+#endif
+
 #ifndef INCL_FSTREAM
 #define INCL_FSTREAM
 #include <fstream>
@@ -44,6 +49,13 @@
 #define INCL_CMATH
 #include <cmath>
 #endif
+
+#ifndef INCL_MATPLOTLIB
+#define INCL_MATPLOTLIB
+#include "matplotlibcpp.h"
+#endif
+
+namespace plt = matplotlibcpp;
 
 // DATA STRUCTURES 
 struct result_elem {
@@ -263,6 +275,85 @@ double calc_sigma_sf(std::vector<result_elem> &results_table) {
 	return sf_sigma;
 }
 
+void gen_scatterplot(std::vector<result_elem>& results_table, double& gamma) {
+	std::vector<double> x1, x2, y1, y2;
+	double wavelength = 299000000.0 / 915000000.0;
+	double d_o = 1.0; 	// 'd-naught' assumed to be 1m for indoor environments
+		 		// or 10m-100m for outdoor environments
+	double k = 20.0 * log10(wavelength / (4.0 * 3.141592653 * d_o));
+
+	for (auto &curr_res : results_table) {
+		if (curr_res.successful == 1) {
+			x1.push_back(curr_res.distance_m);
+			y1.push_back(curr_res.pathloss_measured_db);
+		}
+	}
+
+	double max_dist {0.0}, min_dist {0.0};
+	for (auto &elem : x1) {
+		min_dist = (min_dist < elem)? min_dist : elem;
+		max_dist = (max_dist > elem)? max_dist : elem;
+	}
+
+	double num_points = x1.size();
+	double model_resolution = (max_dist - min_dist) / num_points;
+	
+	for (int i = 0; i < num_points; ++i) {
+		x2.push_back((double)i * model_resolution);
+		y2.push_back(k - (10 * gamma * log10(x2.at(i) / d_o)));
+	}
+
+	plt::scatter(x1, y1);
+	plt::plot(x2,y2);
+	plt::show();
+}
+
+std::vector<double> gen_loss_table(std::vector<result_elem> &results_table) {
+	double max_dist {0.0};
+	double bin_size = 100.0; // meters
+	for (auto &elem : results_table) {
+		max_dist = (max_dist > elem.distance_m)? max_dist : elem.distance_m;
+	}
+
+	std::cout << "======================================" << std::endl;
+	std::cout << "***    PACKET LOSS STATISTICS      ***" << std::endl;
+	std::cout << "======================================" << std::endl;
+
+	std::cout << std::endl << "Maximum distance: " << max_dist << std::endl;
+
+	int num_bins = ceil(max_dist / bin_size);
+	std::cout << "Number of " << bin_size << "m distance bins: " << num_bins << std::endl << std::endl;
+
+	std::vector<double> loss_table(num_bins, 0.0);
+	std::vector<double> tx_table(num_bins, 0.0);
+	std::vector<double> rx_table(num_bins, 0.0);
+
+	for (auto &elem : results_table) {
+		int bin_num = floor(elem.distance_m / bin_size);
+		++tx_table.at(bin_num);
+		if (elem.successful) ++rx_table.at(bin_num);
+	}
+
+	std::cout << std::endl << "tx_table:" << std::endl;
+	for (auto &elem : tx_table) {
+		std::cout << elem << std::endl;
+	}
+
+	std::cout << std::endl << "rx_table:" << std::endl;
+	for (auto &elem : rx_table) {
+		std::cout << elem << std::endl;
+	}
+
+	int bin_num = 0;
+	for (auto &elem : loss_table) {
+		std::cout << (bin_num * bin_size) << " - " << (((bin_num+1)*bin_size)-1) << " meters: ";
+		elem = rx_table.at(bin_num) / tx_table.at(bin_num);
+		std::cout << elem << std::endl;
+		++bin_num;
+	}	       
+	
+	return loss_table;
+}
 
 // MAIN FUNCTION
 int main() {
@@ -285,19 +376,12 @@ int main() {
 	double sigma_sf = calc_sigma_sf(results_table);
 	std::cout << "Calculated standard deviation of shadow fading: " << sigma_sf << std::endl;
 
-	// Print contents of results_table
-//	for (auto &elem : results_table) {
-//		std::cout << elem.packet_id << " " << elem.successful << " " << elem.tx_lat << " " << elem.tx_long << " " << elem.tx_power << " " << elem.rx_lat << " " << elem.rx_long << " " << elem.distance_m << " " << elem.rssi_dbm << " " << elem.snr_db << " " << elem.pathloss_measured_db << " " << elem.pathloss_modeled_db << std::endl;
-//	}
 	// Generate scatter plot of PL vs distance, along with overlay
 	// of Simplified Path Loss model generated earlier
-	//gen_scatterplot(results_table, gamma);
+	gen_scatterplot(results_table, gamma);
 
-	// Generate table of packet loss % binned by distance
-	//std::vector<double> loss_table = gen_loss_table(results_table);
-
-	// Print out packet loss table
-	//print_table(loss_table);
+	// Generate and print table of packet loss % binned by 50m distances
+	std::vector<double> loss_table = gen_loss_table(results_table);
 
 	// Generate plot of packet loss % vs binned distance
 	//gen_lossplot(loss_table);
