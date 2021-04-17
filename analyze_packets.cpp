@@ -173,7 +173,7 @@ std::vector<result_elem> packet_compare(std::vector<std::vector<std::string>> &t
 		curr_res.tx_power = std::stod(tx_elem.at(4));
 		
 		curr_res.successful = 0;
-		curr_res.distance_m = 0;
+		curr_res.distance_m = calc_distance(curr_res.tx_lat, curr_res.tx_long, 38.34741111, -78.22621111);
 		curr_res.rx_lat = 0;
 		curr_res.rx_long = 0;
 		curr_res.rssi_dbm = 0;
@@ -237,9 +237,9 @@ double calc_gamma(std::vector<result_elem> &results_table) {
 	
 	double gamma, x {0.0}, y {0.0}, z{0.0};
 	double wavelength = 299000000.0 / 915000000.0;
-	double d_o = 1.0; 	// 'd-naught' assumed to be 1m for indoor environments
+	double d_o = 500.0; 	// 'd-naught' assumed to be 1m for indoor environments
 		 		// or 10m-100m for outdoor environments
-	double k = 20.0 * log10(wavelength / (4.0 * 3.141592653 * d_o));
+	double k = -140.0; 	//20.0 * log10(wavelength / (4.0 * 3.141592653 * d_o));
 
 	for (auto &cur_res : results_table) {
 		if (cur_res.successful == 1) {
@@ -278,9 +278,9 @@ double calc_sigma_sf(std::vector<result_elem> &results_table) {
 void gen_scatterplot(std::vector<result_elem>& results_table, double& gamma) {
 	std::vector<double> x1, x2, y1, y2;
 	double wavelength = 299000000.0 / 915000000.0;
-	double d_o = 1.0; 	// 'd-naught' assumed to be 1m for indoor environments
+	double d_o = 500.0; 	// 'd-naught' assumed to be 1m for indoor environments
 		 		// or 10m-100m for outdoor environments
-	double k = 20.0 * log10(wavelength / (4.0 * 3.141592653 * d_o));
+	double k = -140.0; //20.0 * log10(wavelength / (4.0 * 3.141592653 * d_o));
 
 	for (auto &curr_res : results_table) {
 		if (curr_res.successful == 1) {
@@ -304,7 +304,9 @@ void gen_scatterplot(std::vector<result_elem>& results_table, double& gamma) {
 	}
 
 	plt::scatter(x1, y1);
-	plt::plot(x2,y2);
+	plt::named_plot("Modeled Path Loss", x2,y2, "r-");
+	plt::legend();
+	plt::title("Measured and Modeled Path Loss");
 	plt::show();
 }
 
@@ -315,14 +317,14 @@ std::vector<double> gen_loss_table(std::vector<result_elem> &results_table) {
 		max_dist = (max_dist > elem.distance_m)? max_dist : elem.distance_m;
 	}
 
-	std::cout << "======================================" << std::endl;
-	std::cout << "***    PACKET LOSS STATISTICS      ***" << std::endl;
-	std::cout << "======================================" << std::endl;
+	//std::cout << "======================================" << std::endl;
+	//std::cout << "***    PACKET LOSS STATISTICS      ***" << std::endl;
+	//std::cout << "======================================" << std::endl;
 
-	std::cout << std::endl << "Maximum distance: " << max_dist << std::endl;
+	//std::cout << std::endl << "Maximum distance: " << max_dist << std::endl;
 
 	int num_bins = ceil(max_dist / bin_size);
-	std::cout << "Number of " << bin_size << "m distance bins: " << num_bins << std::endl << std::endl;
+	//std::cout << "Number of " << bin_size << "m distance bins: " << num_bins << std::endl << std::endl;
 
 	std::vector<double> loss_table(num_bins, 0.0);
 	std::vector<double> tx_table(num_bins, 0.0);
@@ -334,33 +336,51 @@ std::vector<double> gen_loss_table(std::vector<result_elem> &results_table) {
 		if (elem.successful) ++rx_table.at(bin_num);
 	}
 
-	std::cout << std::endl << "tx_table:" << std::endl;
-	for (auto &elem : tx_table) {
-		std::cout << elem << std::endl;
-	}
+	//std::cout << std::endl << "tx_table:" << std::endl;
+	//for (auto &elem : tx_table) {
+	//	std::cout << elem << std::endl;
+	//}
 
-	std::cout << std::endl << "rx_table:" << std::endl;
-	for (auto &elem : rx_table) {
-		std::cout << elem << std::endl;
-	}
+	//std::cout << std::endl << "rx_table:" << std::endl;
+	//for (auto &elem : rx_table) {
+	//	std::cout << elem << std::endl;
+	//}
 
 	int bin_num = 0;
 	for (auto &elem : loss_table) {
-		std::cout << (bin_num * bin_size) << " - " << (((bin_num+1)*bin_size)-1) << " meters: ";
+		//std::cout << (bin_num * bin_size) << " - " << (((bin_num+1)*bin_size)-1) << " meters: ";
 		elem = rx_table.at(bin_num) / tx_table.at(bin_num);
-		std::cout << elem << std::endl;
+		//std::cout << elem << std::endl;
 		++bin_num;
 	}	       
 	
 	return loss_table;
 }
 
+void gen_lossplot(std::vector<double> &loss_table) {
+	std::vector<double> xaxis;
+	std::vector<double> yaxis;
+	double bin_size = 100.0;
+
+	double i = 1.0;
+	for (auto &elem : loss_table) {
+		xaxis.push_back(i*bin_size);
+		yaxis.push_back(1.0 - elem);
+		++i;
+	}
+
+	plt::named_plot("Packet Loss %", xaxis, yaxis);
+	plt::legend();
+	plt::title("Packet Loss % vs Distance (In Meters)");
+	plt::show();	
+}
+
 // MAIN FUNCTION
 int main() {
 	// open up CSV files and read them to tables
 	std::ifstream ifs_tx, ifs_rx;
-	ifs_tx.open ("tx_packets - 10 APR 2021.csv", std::ifstream::in);
-	ifs_rx.open ("rx_packets - 10 APR 2021.csv", std::ifstream::in);
+	ifs_tx.open ("tx_packets - 15 APR 2021.csv", std::ifstream::in);
+	ifs_rx.open ("rx_packets - 15 APR 2021.csv", std::ifstream::in);
 
 	std::vector<std::vector<std::string>> tx_table = readCSV(ifs_tx);
 	std::vector<std::vector<std::string>> rx_table = readCSV(ifs_rx);
@@ -383,8 +403,12 @@ int main() {
 	// Generate and print table of packet loss % binned by 50m distances
 	std::vector<double> loss_table = gen_loss_table(results_table);
 
+	//for (auto &elem : results_table) {
+	//	std::cout << elem.packet_id <<"packet / "<< elem.rx_lat<<" "<< elem.rx_long <<" / "<< elem.tx_lat <<" "<<elem.tx_long<<" / "<<elem.distance_m<<"meters / "<<elem.successful<<" success / "<<elem.pathloss_measured_db<<" measured / "<<elem.pathloss_modeled_db<<"modeled / "<<elem.tx_power<<"tx power."<<std::endl;
+	//}
+
 	// Generate plot of packet loss % vs binned distance
-	//gen_lossplot(loss_table);
+	gen_lossplot(loss_table);
 
 	ifs_tx.close();
 	ifs_rx.close();
