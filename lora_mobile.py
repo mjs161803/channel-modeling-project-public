@@ -37,10 +37,10 @@ from datetime import date, datetime, timedelta
 #########################################
 
 # MySQL db Configuration
-mysqlUser = 'mjsanda_loramob'
-mysqlPw = 'a!12zEFJ7@#jJ47'
-dbHostName = 'agronicaiot.com'
-dbName = 'mjsanda_lora_project'
+mysqlUser = ''
+mysqlPw = ''
+dbHostName = ''
+dbName = ''
 tableName = 'tx_packets'
 
 # GPS Serial Device Configuration
