@@ -58,6 +58,13 @@
 namespace plt = matplotlibcpp;
 
 // DATA STRUCTURES 
+
+enum class CSVState {
+	UnquotedField,
+	QuotedField,
+	QuotedQuote
+};
+
 struct result_elem {
 	long packet_id;
 	bool successful;
@@ -75,18 +82,38 @@ struct result_elem {
 	double pathloss_modeled_db;
 };
 
+class ChannelModel {
+	private:
+		double k_param;
+		double gamma_param;
+		double d_ref;
+		double std;
+	public:
+		ChannelModel();
+
+		void set_k_param(const double new_k_param);
+		void set_gamma_param(const double new_gamma_param);
+		void set_d_ref(const double new_d_ref);
+
+		double get_k_param();
+		double get_gamma_param();
+		double get_d_ref();
+		double get_std();
+
+		void optimize_model(std::vector<result_elem> &results_table);
+
+};
+
 // FUNCTION DECLARATIONS
 double calc_distance (double, double, double, double);
+double calc_gamma (std::vector<result_elem>&, double&, double&);
+double calc_sigma_sf (std::vector<result_elem>&); 
+
 
 // FUNCTION DEFINITIONS
 
 // Function to take in row of text, and return a vector containing
 // the fields of the CSV row
-enum class CSVState {
-	UnquotedField,
-	QuotedField,
-	QuotedQuote
-};
 
 std::vector<std::string> readCSVRow(const std::string &row) {
 	CSVState state = CSVState::UnquotedField;
@@ -189,8 +216,13 @@ std::vector<result_elem> packet_compare(std::vector<std::vector<std::string>> &t
 				curr_res.rx_long = std::stod(rx_elem.at(2));
 				curr_res.rssi_dbm = std::stod(rx_elem.at(4));
 				curr_res.snr_db = std::stod(rx_elem.at(5));
-				curr_res.pathloss_measured_db = curr_res.rssi_dbm - curr_res.tx_power;
-				curr_res.distance_m = calc_distance(curr_res.tx_lat, curr_res.tx_long, curr_res.rx_lat, curr_res.rx_long); 
+				if (curr_res.snr_db < 0) {
+					curr_res.pathloss_measured_db = curr_res.rssi_dbm - curr_res.tx_power + curr_res.snr_db;
+				}
+				else {
+					curr_res.pathloss_measured_db = curr_res.rssi_dbm - curr_res.tx_power;
+				}
+				curr_res.distance_m = ::calc_distance(curr_res.tx_lat, curr_res.tx_long, curr_res.rx_lat, curr_res.rx_long); 
 			}
 		}
 		results_table.push_back(curr_res);
@@ -217,7 +249,7 @@ double calc_distance(double lat1, double lon1, double lat2, double lon2) {
 	return (double)d;
 }
 
-double calc_gamma(std::vector<result_elem> &results_table) {
+double calc_gamma(std::vector<result_elem> &results_table, double &curr_dist, double &curr_pl) {
 	// This function calculates a value for Gamma using the 
 	// Minimum Mean Squared Error (MMSE).  The MSE is calculated
 	// as a function of gamma "F(g)".  That function is then
@@ -237,10 +269,9 @@ double calc_gamma(std::vector<result_elem> &results_table) {
 	
 	double gamma, x {0.0}, y {0.0}, z{0.0};
 	double wavelength = 299000000.0 / 915000000.0;
-	double d_o = 500.0; 	// 'd-naught' assumed to be 1m for indoor environments
-		 		// or 10m-100m for outdoor environments
-	double k = -140.0; 	//20.0 * log10(wavelength / (4.0 * 3.141592653 * d_o));
-
+	double d_o = curr_dist; 		
+	double k = curr_pl; 	
+	
 	for (auto &cur_res : results_table) {
 		if (cur_res.successful == 1) {
 			x += 2 * (cur_res.pathloss_measured_db - k) * (10*log10(cur_res.distance_m / d_o));
@@ -250,11 +281,6 @@ double calc_gamma(std::vector<result_elem> &results_table) {
 
 	z = 2.0 * y; // differentiate F(g)
 	gamma = -x / z;
-
-	// populate results_table with modeled path loss values using this new gamma value
-	for (auto &cur_res : results_table) {
-		cur_res.pathloss_modeled_db = k - (10 * gamma * log10(cur_res.distance_m / d_o));
-	}
 
 	return gamma;
 }
@@ -275,12 +301,12 @@ double calc_sigma_sf(std::vector<result_elem> &results_table) {
 	return sf_sigma;
 }
 
-void gen_scatterplot(std::vector<result_elem>& results_table, double& gamma) {
+void gen_scatterplot(std::vector<result_elem>& results_table, ChannelModel &my_channel_model) {
 	std::vector<double> x1, x2, y1, y2;
 	double wavelength = 299000000.0 / 915000000.0;
-	double d_o = 500.0; 	// 'd-naught' assumed to be 1m for indoor environments
-		 		// or 10m-100m for outdoor environments
-	double k = -140.0; //20.0 * log10(wavelength / (4.0 * 3.141592653 * d_o));
+	double d_o = my_channel_model.get_d_ref(); 	
+	double k = my_channel_model.get_k_param(); 
+	double gamma = my_channel_model.get_gamma_param();
 
 	for (auto &curr_res : results_table) {
 		if (curr_res.successful == 1) {
@@ -375,8 +401,101 @@ void gen_lossplot(std::vector<double> &loss_table) {
 	plt::show();	
 }
 
+ChannelModel::ChannelModel() {
+	k_param = -90.0;
+	gamma_param = 2.0;
+	d_ref = 1.0;
+	std = 100.0;
+}
+
+void ChannelModel::set_k_param(const double new_k_val) {
+	k_param = new_k_val;
+}
+
+void ChannelModel::set_gamma_param(const double new_gamma_val) {
+	gamma_param = new_gamma_val;
+}
+
+void ChannelModel::set_d_ref(const double new_d_ref) {
+	d_ref = new_d_ref;
+}
+
+double ChannelModel::get_d_ref() {
+	return d_ref;
+}
+
+double ChannelModel::get_gamma_param() {
+	return gamma_param;
+}
+
+double ChannelModel::get_k_param() {
+	return k_param;
+}
+
+double ChannelModel::get_std() {
+	return std;
+}
+
+void ChannelModel::optimize_model(std::vector<result_elem> &results_table) {
+	// Brute Force method to determine what parameters minimize the 
+	// standard deviation from the model
+	//
+	// iterate over d_ref
+	// 	iterate over k (0 to -160) @ d_ref
+	// 		- calculate gamma
+	// 		- calculate std
+	// 		- if current std < min_std, then use current d_ref, k, gamma and std
+
+	double optimized_d_ref {0.0}, optimized_k_param {0.0}, optimized_gamma_param {0.0}, optimized_std {100.0};
+	double max_dist {0.0}, min_dist {100.0};
+
+	for (auto &elem : results_table) {
+		min_dist = (min_dist < elem.distance_m)? min_dist : elem.distance_m;
+		max_dist = (max_dist > elem.distance_m)? max_dist : elem.distance_m;
+	}
+
+	// iterate all d_ref's from min to max in 1m increments
+	for(double curr_dist = min_dist; curr_dist < max_dist; curr_dist += 1.0) {
+
+		// iterate over all pathlosses possible from 0 dB to -160 dB, in 1dB increments
+		for (double curr_pl = 0.0; curr_pl >= -160.0; curr_pl += -1.0) {
+			
+			double curr_gamma = ::calc_gamma(results_table, curr_dist, curr_pl); 
+			
+			// calculate std of model using current parameters
+			// first, populate results_table with modeled path loss values using this new gamma value
+			for (auto &cur_res : results_table) {
+				cur_res.pathloss_modeled_db = curr_pl - (10.0 * curr_gamma * log10(cur_res.distance_m / curr_dist));
+			}
+			// now calculate std
+			double curr_std = ::calc_sigma_sf(results_table);
+
+			// check if new std is lower than the current optimized_std, update
+			// optimized_d_ref, optimized_k_param, optimized_gamma_param, and
+			// optimized_std if it is.
+			if (curr_std < optimized_std) {
+				optimized_d_ref = curr_dist;
+				optimized_k_param = curr_pl;
+				optimized_gamma_param = curr_gamma;
+				optimized_std = curr_std;
+			}
+
+		}
+	}
+
+
+	d_ref = optimized_d_ref;
+	k_param = optimized_k_param;
+	gamma_param = optimized_gamma_param;
+	std = optimized_std;
+
+}
+
+
 // MAIN FUNCTION
 int main() {
+	ChannelModel my_channel_model;
+
 	// open up CSV files and read them to tables
 	std::ifstream ifs_tx, ifs_rx;
 	ifs_tx.open ("tx_packets - 15 APR 2021.csv", std::ifstream::in);
@@ -388,17 +507,17 @@ int main() {
 	// Compare tx_table and rx_table to generate results_table
 	std::vector<result_elem> results_table = packet_compare(tx_table, rx_table);
 	
-	// Analyze results_table and calculate gamma value
-	double gamma = calc_gamma(results_table);
-	std::cout << "Calculated gamma value: " << gamma << std::endl << std::endl;
-
-	// Calculate shadow fading standard deviation
-	double sigma_sf = calc_sigma_sf(results_table);
-	std::cout << "Calculated standard deviation of shadow fading: " << sigma_sf << std::endl;
+	// Analyze results_table and calculate optimized parameters for d_o, K, gamma
+	my_channel_model.optimize_model(results_table);
+	
+	std::cout << "Optimized model reference distance (d_o): " << my_channel_model.get_d_ref() << std::endl;
+	std::cout << "Optimized model path loss @ d_o (K): " << my_channel_model.get_k_param() << std::endl;
+	std::cout << "Optimized model gamma value: " << my_channel_model.get_gamma_param() << std::endl;
+	std::cout << "Optimized model standard deviation from model: " << my_channel_model.get_std() << std::endl;
 
 	// Generate scatter plot of PL vs distance, along with overlay
 	// of Simplified Path Loss model generated earlier
-	gen_scatterplot(results_table, gamma);
+	gen_scatterplot(results_table, my_channel_model);
 
 	// Generate and print table of packet loss % binned by 50m distances
 	std::vector<double> loss_table = gen_loss_table(results_table);
