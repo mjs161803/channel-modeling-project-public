@@ -5,4 +5,3 @@ This repository holds all files associated with my semester project for ECE6784 
   - Final Report
   - Project Presentation (slides)
   - All source code
-  - CSV files with data collected during testing
