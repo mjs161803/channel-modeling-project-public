@@ -31,10 +31,10 @@ rx_location_lat = '38.3474'
 rx_location_long = '-78.2262'
 
 # MySQL db Configuration
-mysqlUser = 'mjsanda_loragw'
-mysqlPw = 'a!12zEFJ7@#jJ47'
-dbHostName = 'agronicaiot.com'
-dbName = 'mjsanda_lora_project'
+mysqlUser = ''
+mysqlPw = ''
+dbHostName = ''
+dbName = ''
 tableName = 'rx_packets'
 
 # Configure LoRa Radio
