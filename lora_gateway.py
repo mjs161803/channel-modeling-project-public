@@ -27,8 +27,8 @@ import mysql.connector
 from datetime import date, datetime, timedelta
 
 # Gateway Geographic Location
-rx_location_lat = '38.3474'
-rx_location_long = '-78.2262'
+rx_location_lat = ''
+rx_location_long = ''
 
 # MySQL db Configuration
 mysqlUser = ''
